@@ -698,23 +698,34 @@
   [vertical_profile]
     type = LineValueSampler
     use_displaced_mesh = false
-    start_point = '1000 1000 -840'
-    end_point = '1000 1000 -800'
+    start_point = '1005 1000 -840'
+    end_point = '1005 1000 -800'
     sort_by = z
     num_points = 20
     outputs = csv
-    variable = 'pgas temp z_co2 saturation_gas'
+    variable = 'pgas temp z_co2 saturation_gas stress_xx stress_yy stress_zz stress_xy stress_yz stress_xz vonmises'
     execute_on = 'initial timestep_end'
   []
-  [horizontal_profile]
+  [horizontal_profile_bottom]
     type = LineValueSampler
     use_displaced_mesh = false
-    start_point = '900 1000 -820'
-    end_point = '1100 1000 -820'
+    start_point = '900 1000 -840'
+    end_point = '1100 1000 -840'
     sort_by = x
     num_points = 20
     outputs = csv
-    variable = 'pgas temp z_co2 saturation_gas'
+    variable = 'pgas temp z_co2 saturation_gas stress_xx stress_yy stress_zz stress_xy stress_yz stress_xz vonmises'
+    execute_on = 'initial timestep_end'
+  []
+  [horizontal_profile_top]
+    type = LineValueSampler
+    use_displaced_mesh = false
+    start_point = '900 1000 -800'
+    end_point = '1100 1000 -800'
+    sort_by = x
+    num_points = 20
+    outputs = csv
+    variable = 'pgas temp z_co2 saturation_gas stress_xx stress_yy stress_zz stress_xy stress_yz stress_xz vonmises'
     execute_on = 'initial timestep_end'
   []
 []
