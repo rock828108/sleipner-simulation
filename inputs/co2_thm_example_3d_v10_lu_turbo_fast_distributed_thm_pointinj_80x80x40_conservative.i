@@ -27,7 +27,7 @@
     block_name = wellbore
     bottom_left = '997.5 997.5 -840.0'
     top_right   = '1002.5 1002.5 -836.0'
-    show_info = true
+    show_info = false
   []
 []
 
@@ -40,7 +40,7 @@
 
 [Variables]
   [pgas]
-    scaling = 1e-6
+    scaling = 1
     []
   [zi]
     initial_condition = 1e-12
@@ -50,13 +50,13 @@
     scaling = 1e-3
   []
   [disp_x]
-    scaling = 1e-10
+    scaling = 1e-6
   []
   [disp_y]
-    scaling = 1e-10
+    scaling = 1e-6
   []
   [disp_z]
-    scaling = 1e-10
+    scaling = 1e-6
   []
 []
 
@@ -216,18 +216,12 @@
     block = wellbore
     function = co2_source_density
   []
-  [co2_enthalpy_source]
-    # Volumetric enthalpy source on the energy equation: co2_source_density [kg/(m³·s)]
-    # multiplied by the specific enthalpy of injected CO2 at (323 K, ~8.25 MPa).
-    # h_CO2(323 K, 8.25 MPa) ≈ 3.40e5 J/kg  (supercritical, from NIST/CO2 tables).
-    # This is the block-internal equivalent of PorousFlowEnthalpySink: it injects the
-    # correct amount of thermal energy so that the temperature equation "sees" the
-    # cold injection, rather than just receiving mass with no associated enthalpy.
-    type = BodyForce
-    variable = temp
-    block = wellbore
-    function = co2_enthalpy_source_fn
-  []
+  # [co2_enthalpy_source]
+  #   type = BodyForce
+  #   variable = temp
+  #   block = wellbore
+  #   function = co2_enthalpy_source_fn
+  # []
 []
 
 [AuxKernels]
@@ -300,7 +294,7 @@
   [zi_max_increment]
     type = MaxIncrement
     variable = zi
-    max_increment = 0.2  # was 0.05: less restrictive during ramp-up
+    max_increment = 0.1  # was 0.05: less restrictive during ramp-up
   []
   [pgas_min]
     type = BoundingValueNodalDamper
@@ -310,7 +304,7 @@
   [pgas_max_inc]
     type = MaxIncrement
     variable = pgas
-    max_increment = 5e6  # was 5e5: 0.5 MPa cap forced many NL iterations; 2 MPa is still safe
+    max_increment = 5e5  # was 5e5: 0.5 MPa cap forced many NL iterations; 2 MPa is still safe
   []
   [temp_max_inc]
     type = MaxIncrement
@@ -336,7 +330,11 @@
   [dt_cap_fn]
     type = PiecewiseLinear
     x = '0 5.8e4 6.2e4 6.40e4 6.44e4 6.48e4 6.55e4 6.8e4 7.2e4 3.1536e7'
-    y = '5400 1800 300 50 20 20 50 150 600 5400'
+    y = '1800 900 300 100 50 50 100 300 900 5400'
+  []
+  [injection_heat_scale]
+    type = ParsedFunction
+    expression = 'if(t < 10, 0, if(t < 259200, ((t-10)/259190)^2, 1))'
   []
   [injection_rate]
     type = ParsedFunction
@@ -348,15 +346,10 @@
     expression = '(if(t < 10, 0, if(t < 259200, 2*(((t-10)/259190)^2)*(3-2*((t-10)/259190)), 2)))/100'
   []
   [co2_enthalpy_source_fn]
-    # co2_source_density [kg/(m³·s)] × h_inj [J/kg] → [W/m³]
-    # h_inj = h_CO2(T=323 K, P=8.25 MPa) ≈ 3.40e5 J/kg
-    #   From NIST WebBook (supercritical CO2, 50°C, 82.5 bar):
-    #   h ≈ 339.7 kJ/kg  → use 3.40e5 J/kg.
-    # If injection pressure changes significantly, update this value accordingly.
     type = ParsedFunction
-    expression = 'co2_src * 3.40e5'
-    symbol_names = 'co2_src'
-    symbol_values = 'co2_source_density'
+    expression = 'co2_src * heat_scale * 3.40e5'
+    symbol_names = 'co2_src heat_scale'
+    symbol_values = 'co2_source_density injection_heat_scale'
   []
   [Tin323]
     type = ParsedFunction
@@ -692,22 +685,21 @@
     petsc_options_value = 'bjacobi lu NONZERO'
   []
 
-  # [hypre_fast]
-  #   type = SMP
-  #   full = true
-  #   # 流-热场 vs 力学场分组，让 BoomerAMG 按物理结构建层次
-  #   coupled_groups = 'pgas,zi,temp disp_x,disp_y,disp_z'
-  #   petsc_options_iname = '-ksp_type -pc_type -pc_hypre_type -ksp_rtol -ksp_max_it -ksp_gmres_restart -pc_hypre_boomeramg_strong_threshold'
-  #   petsc_options_value = 'fgmres hypre boomeramg 1e-8 500 200 0.5'
-  # []
   [hypre_fast]
     type = SMP
-    full = false
-    trust_my_coupling = true
-    coupled_groups = 'pgas,zi,temp temp,disp_x,disp_y,disp_z pgas,disp_x,disp_y,disp_z'
-    petsc_options_iname = '-ksp_type -pc_type -pc_hypre_type -ksp_rtol -ksp_max_it -ksp_gmres_restart -snes_lag_jacobian -pc_hypre_boomeramg_strong_threshold -pc_hypre_boomeramg_coarsen_type -pc_hypre_boomeramg_interp_type -pc_hypre_boomeramg_agg_nl -pc_hypre_boomeramg_P_max -pc_hypre_boomeramg_truncfactor'
-    petsc_options_value = 'fgmres hypre boomeramg 1e-2 400 60 1 0.7 HMIS ext+i 2 2 0.3'
+    full = true
+    # coupled_groups = 'pgas,zi,temp disp_x,disp_y,disp_z'
+    petsc_options_iname = '-ksp_type -pc_type -pc_hypre_type -ksp_rtol -ksp_max_it -ksp_gmres_restart -pc_hypre_boomeramg_strong_threshold'
+    petsc_options_value = 'fgmres hypre boomeramg 1e-8 500 200 0.5'
   []
+  # [hypre_fast]
+  #   type = SMP
+  #   full = false
+  #   trust_my_coupling = true
+  #   coupled_groups = 'pgas,zi,temp temp,disp_x,disp_y,disp_z pgas,disp_x,disp_y,disp_z'
+  #   petsc_options_iname = '-ksp_type -pc_type -pc_hypre_type -ksp_rtol -ksp_max_it -ksp_gmres_restart -snes_lag_jacobian -pc_hypre_boomeramg_strong_threshold -pc_hypre_boomeramg_coarsen_type -pc_hypre_boomeramg_interp_type -pc_hypre_boomeramg_agg_nl -pc_hypre_boomeramg_P_max -pc_hypre_boomeramg_truncfactor'
+  #   petsc_options_value = 'fgmres hypre boomeramg 1e-2 400 60 1 0.7 HMIS ext+i 2 2 0.3'
+  # []
   [hypre_fgmres_loose]
     type = SMP
     full = true
@@ -733,7 +725,8 @@
                      # if that trial point has out-of-range temperature (after KSP fails),
                      # it aborts. bt (backtracking) halves the step and retries, which can
                      # avoid the out-of-range region without aborting.
-  automatic_scaling = false
+  automatic_scaling = true
+  compute_scaling_once = true
   nl_abs_tol = 1E-4
   nl_rel_tol = 1E-8
   nl_max_its = 25   # was 20: extra headroom prevents premature DIVERGED_MAX_IT
@@ -749,11 +742,11 @@
     dt = 3
     growth_factor = 1.05
     cutback_factor = 0.5
-    cutback_factor_at_failure = 0.7
-    optimal_iterations = 8
-    iteration_window = 2
+    cutback_factor_at_failure = 0.5
+    optimal_iterations = 20
+    iteration_window = 5
     linear_iteration_ratio = 150
-    timestep_limiting_postprocessor = 'dt_cap_pp'
+    # timestep_limiting_postprocessor = 'dt_cap_pp'
     reject_large_step = true
     reject_large_step_threshold = 0.8
   []
@@ -770,12 +763,20 @@
   #  use_displaced = false \
   #  write_hdf5 = true   # 如果你环境支持并想进一步优化并行 I/O，可测试开启 \
   #[]
+
   [exodus]
     type = Exodus
     file_base = exodus_output/co2_th_only_out
-    time_step_interval = 200
-    execute_on = 'timestep_end final'
+    time_step_interval = 20
+    execute_on = 'final'
   []
+  # [exodus]
+  #   type = Nemesis
+  #   file_base = exodus_output/co2_th_only_out
+  #   time_step_interval = 20
+  #   execute_on = 'timestep_end final'
+  #   use_displaced = false
+  # []
 
   [console]
     type = Console
@@ -792,9 +793,9 @@
 
   [checkpoint]
     type = Checkpoint
-    file_base = checkpoints/co2_thm_example_3d_out_fast_cp/cp
+    file_base = outputs/experiments/co2_thm_80x80x40_cons/checkpoints/cp
     num_files = 2
-    wall_time_interval = 7200
+    time_step_interval = 20
     execute_on = 'TIMESTEP_END'
   []
 []
