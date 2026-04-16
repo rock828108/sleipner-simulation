@@ -4,8 +4,8 @@
 #          conservative injection/time-step controls and safer Jacobian options.
 [Mesh]
   parallel_type = distributed
-  final_generator = well_block
-
+  # final_generator = well_block
+  final_generator = gen
   [gen]
     type = GeneratedMeshGenerator
     dim = 3
@@ -20,15 +20,15 @@
     zmax = -800
   []
 
-  [well_block]
-    type = SubdomainBoundingBoxGenerator
-    input = gen
-    block_id = 10
-    block_name = wellbore
-    bottom_left = '997.5 997.5 -840.0'
-    top_right   = '1002.5 1002.5 -836.0'
-    show_info = false
-  []
+  # [well_block]
+  #   type = SubdomainBoundingBoxGenerator
+  #   input = gen
+  #   block_id = 10
+  #   block_name = wellbore
+  #   bottom_left = '997.5 997.5 -840.0'
+  #   top_right   = '1002.5 1002.5 -836.0'
+  #   show_info = false
+  # []
 []
 
 [GlobalParams]
@@ -40,11 +40,11 @@
 
 [Variables]
   [pgas]
-    scaling = 1
+    scaling = 1e-6
     []
   [zi]
     initial_condition = 1e-12
-    scaling = 1 # 或者尝试 1e3
+    scaling = 1e3 # 或者尝试 1e3
   []
   [temp]
     scaling = 1e-3
@@ -80,6 +80,17 @@
 []
 
 [AuxVariables]
+  [inj_flux_scale]
+    family = MONOMIAL
+    order = CONSTANT
+    initial_condition = 1.0
+  []
+
+  [inj_heat_flux_scale]
+    family = MONOMIAL
+    order = CONSTANT
+    initial_condition = 1.0
+  []
   [xnacl]
     initial_condition = 0.0
     outputs = 'none'
@@ -210,12 +221,12 @@
     variable = disp_z
     value = -9.81
   []
-  [co2_well_source]
-    type = BodyForce
-    variable = zi
-    block = wellbore
-    function = co2_source_density
-  []
+  # [co2_well_source]
+  #   type = BodyForce
+  #   variable = zi
+  #   block = wellbore
+  #   function = co2_source_density
+  # []
   # [co2_enthalpy_source]
   #   type = BodyForce
   #   variable = temp
@@ -232,6 +243,19 @@
     variable = saturation_gas
     use_displaced_mesh = false
     execute_on = 'initial timestep_end'
+  []
+  [inj_flux_scale]
+    type = FunctionAux
+    variable = inj_flux_scale
+    function = injection_rate_per_m
+    execute_on = 'initial timestep_begin'
+  []
+
+  [inj_heat_flux_scale]
+    type = FunctionAux
+    variable = inj_heat_flux_scale
+    function = injection_heat_rate_per_m
+    execute_on = 'initial timestep_begin'
   []
   # [stress_zz_calc]
   #   type = RankTwoAux
@@ -290,6 +314,30 @@
   # []
 []
 
+[DiracKernels]
+  [co2_inject_line]
+    type = PorousFlowPolyLineSink
+    variable = zi
+    point_file = inputs/co2_injection_well_centerline_80x80x40.bh
+    p_or_t_vals = '0'
+    fluxes = '-1'
+    multiplying_var = inj_flux_scale
+    SumQuantityUO = co2_line_sink_sum
+  []
+
+  [co2_inject_heat_line]
+    type = PorousFlowPolyLineSink
+    variable = temp
+    fluid_phase = 1
+    use_enthalpy = true
+    point_file = inputs/co2_injection_well_centerline_80x80x40.bh
+    p_or_t_vals = '0'
+    fluxes = '-1'
+    multiplying_var = inj_heat_flux_scale
+    SumQuantityUO = heat_line_sink_sum
+  []
+[]
+
 [Dampers]
   [zi_max_increment]
     type = MaxIncrement
@@ -332,25 +380,44 @@
     x = '0 5.8e4 6.2e4 6.40e4 6.44e4 6.48e4 6.55e4 6.8e4 7.2e4 3.1536e7'
     y = '1800 900 300 100 50 50 100 300 900 5400'
   []
-  [injection_heat_scale]
-    type = ParsedFunction
-    expression = 'if(t < 10, 0, if(t < 259200, ((t-10)/259190)^2, 1))'
-  []
+  # [injection_heat_scale]
+  #   type = ParsedFunction
+  #   expression = 'if(t < 10, 0, if(t < 259200, ((t-10)/259190)^2, 1))'
+  # []
   [injection_rate]
     type = ParsedFunction
     expression = 'if(t < 10, 0, if(t < 259200, 2*(((t-10)/259190)^2)*(3-2*((t-10)/259190)), 2))'
   []
-
-  [co2_source_density]
+  # [injection_rate_per_m]
+  #   type = ParsedFunction
+  #   expression = 'if(t < 10, 0, if(t < 259200, 2*(((t-10)/259190)^2)*(3-2*((t-10)/259190)), 2))'
+  # []
+  [injection_rate_per_m]
     type = ParsedFunction
-    expression = '(if(t < 10, 0, if(t < 259200, 2*(((t-10)/259190)^2)*(3-2*((t-10)/259190)), 2)))/100'
+    expression = 'qtot / 10.0'
+    symbol_names = 'qtot'
+    symbol_values = 'injection_rate'
   []
-  [co2_enthalpy_source_fn]
+  [injection_heat_rate_per_m]
     type = ParsedFunction
-    expression = 'co2_src * heat_scale * 3.40e5'
-    symbol_names = 'co2_src heat_scale'
-    symbol_values = 'co2_source_density injection_heat_scale'
+    expression = 'qtot / 10.0'
+    symbol_names = 'qtot'
+    symbol_values = 'injection_rate'
   []
+  # [injection_heat_rate_per_m]
+  #   type = ParsedFunction
+  #   expression = 'if(t < 10, 0, if(t < 259200, 2*(((t-10)/259190)^2)*(3-2*((t-10)/259190)), 2))'
+  # []
+  # [co2_source_density]
+  #   type = ParsedFunction
+  #   expression = '(if(t < 10, 0, if(t < 259200, 2*(((t-10)/259190)^2)*(3-2*((t-10)/259190)), 2)))/100'
+  # []
+  # [co2_enthalpy_source_fn]
+  #   type = ParsedFunction
+  #   expression = 'co2_src * heat_scale * 3.40e5'
+  #   symbol_names = 'co2_src heat_scale'
+  #   symbol_values = 'co2_source_density injection_heat_scale'
+  # []
   [Tin323]
     type = ParsedFunction
     expression = '323'
@@ -382,6 +449,13 @@
 []
 
 [UserObjects]
+  [co2_line_sink_sum]
+    type = PorousFlowSumQuantity
+  []
+
+  [heat_line_sink_sum]
+    type = PorousFlowSumQuantity
+  []
   [dictator]
     type = PorousFlowDictator
     porous_flow_vars = 'temp pgas zi disp_x disp_y disp_z'
@@ -447,21 +521,21 @@
     block = 0
     porosity = 0.2
   []
-  [porosity_wellbore]
-    type = PorousFlowPorosityConst
-    block = wellbore
-    porosity = 0.35
-  []
+  # [porosity_wellbore]
+  #   type = PorousFlowPorosityConst
+  #   block = wellbore
+  #   porosity = 0.35
+  # []
   [permeability_reservoir]
     type = PorousFlowPermeabilityConst
     block = 0
     permeability = '2e-13 0 0  0 2e-13 0  0 0 2e-13'
   []
-  [permeability_wellbore]
-    type = PorousFlowPermeabilityConst
-    block = wellbore
-    permeability = '1e-11 0 0  0 1e-11 0  0 0 1e-11'
-  []
+  # [permeability_wellbore]
+  #   type = PorousFlowPermeabilityConst
+  #   block = wellbore
+  #   permeability = '1e-11 0 0  0 1e-11 0  0 0 1e-11'
+  # []
   [relperm_liquid]
     type = PorousFlowRelativePermeabilityCorey
     # Slightly soften the liquid relperm curve to reduce the hardest two-phase transitions.
@@ -620,20 +694,32 @@
     type = TimestepSize
     execute_on = 'initial timestep_end'
   []
-  [injected_mass_this_step]
-    type = ParsedPostprocessor
-    expression = 'source_density_pp * 100 * dt'
-    pp_names = 'source_density_pp dt'
-    execute_on = timestep_end
-    outputs = none
-  []
-  [source_density_pp]
+  # [injected_mass_this_step]
+  #   type = ParsedPostprocessor
+  #   expression = 'source_density_pp * 100 * dt'
+  #   pp_names = 'source_density_pp dt'
+  #   execute_on = timestep_end
+  #   outputs = none
+  # []
+  # [source_density_pp]
+  #   type = FunctionValuePostprocessor
+  #   function = co2_source_density
+  #   execute_on = 'initial timestep_begin'
+  #   outputs = none
+  # []
+  [injection_mass_flux]
     type = FunctionValuePostprocessor
-    function = co2_source_density
+    function = injection_rate_per_m
     execute_on = 'initial timestep_begin'
     outputs = none
   []
-
+  [injected_mass_this_step]
+    type = ParsedPostprocessor
+    expression = 'injection_mass_flux * dt'
+    pp_names = 'injection_mass_flux dt'
+    execute_on = timestep_end
+    outputs = none
+  []
   [total_injected_mass]
     type = CumulativeValuePostprocessor
     postprocessor = injected_mass_this_step
@@ -664,7 +750,7 @@
     type = SMP
     full = true
     petsc_options_iname = '-ksp_type -pc_type -pc_factor_mat_solver_type -pc_factor_shift_type -ksp_rtol -ksp_max_it -snes_lag_jacobian -mat_mumps_icntl_14 -pc_factor_nonzeros_along_diagonal'
-    petsc_options_value = 'preonly lu mumps NONZERO 1e-4 1500 1 400 1e-10'
+    petsc_options_value = 'preonly lu mumps NONZERO 1e-4 1500 2 400 1e-10'
   []
   [ilu_fast]
     type = SMP
@@ -688,7 +774,7 @@
   [hypre_fast]
     type = SMP
     full = true
-    # coupled_groups = 'pgas,zi,temp disp_x,disp_y,disp_z'
+    coupled_groups = 'pgas,zi,temp disp_x,disp_y,disp_z'
     petsc_options_iname = '-ksp_type -pc_type -pc_hypre_type -ksp_rtol -ksp_max_it -ksp_gmres_restart -pc_hypre_boomeramg_strong_threshold'
     petsc_options_value = 'fgmres hypre boomeramg 1e-8 500 200 0.5'
   []
@@ -721,7 +807,7 @@
   # petsc_options_value = '20'
   petsc_options_iname = '-snes_ksp_ew -snes_ksp_ew_version -snes_lag_jacobian_persists -snes_max_linear_solve_fail'
   petsc_options_value = 'true 2 true 10'
-  line_search = bt   # was l2: l2 evaluates residual at a trial point using a quadratic model;
+  line_search = none   # was l2: l2 evaluates residual at a trial point using a quadratic model;
                      # if that trial point has out-of-range temperature (after KSP fails),
                      # it aborts. bt (backtracking) halves the step and retries, which can
                      # avoid the out-of-range region without aborting.
@@ -740,13 +826,13 @@
   [TimeStepper]
     type = IterationAdaptiveDT
     dt = 3
-    growth_factor = 1.05
+    growth_factor = 1.1
     cutback_factor = 0.5
     cutback_factor_at_failure = 0.5
     optimal_iterations = 20
     iteration_window = 5
     linear_iteration_ratio = 150
-    # timestep_limiting_postprocessor = 'dt_cap_pp'
+    timestep_limiting_postprocessor = 'dt_cap_pp'
     reject_large_step = true
     reject_large_step_threshold = 0.8
   []
